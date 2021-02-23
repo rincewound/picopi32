@@ -1,4 +1,4 @@
-use sdl2::pixels::Color;
+use core1::GfxCore;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use std::time::Duration;
@@ -6,6 +6,7 @@ use std::time::Duration;
 mod sdl_display;
 
 struct dummy_irq{}
+
 impl core1::DisplayIrq for dummy_irq{
     fn trigger_irq(&mut self, irq_type: core1::Irq) {
 
@@ -28,7 +29,7 @@ pub fn main() {
     // canvas.present();
     let dsp = sdl_display::SdlDisplay::new(canvas);
     let irq = dummy_irq{};
-    let mut gfxCore = core1::DebugGfxCore::new(dsp, irq);
+    let mut gfxCore = core1::debug_core::DebugGfxCore::new(dsp, irq);
     let mut event_pump = sdl_context.event_pump().unwrap();
     let mut i = 0;
     'running: loop {
