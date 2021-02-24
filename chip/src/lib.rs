@@ -1,4 +1,3 @@
-#![feature(lang_items)]
 #![no_std]
 
 use core::panic::PanicInfo;
@@ -22,10 +21,6 @@ pub static RESET_VECTOR: unsafe extern "C" fn() -> ! = Reset;
 fn panic(_panic: &PanicInfo<'_>) -> ! {
     loop {}
 }
-
-#[lang = "eh_personality"]
-extern "C" fn eh_personality() {}
-
 
 #[macro_export]
 macro_rules! entry {
