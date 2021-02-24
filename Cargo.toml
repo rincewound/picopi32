@@ -4,10 +4,10 @@ members = [
     "core1",
     "tests",
     "bomberman",
-    "chip",
 ]
 
 exclude = [
     "win",
     "main",
+    "chip",
 ]

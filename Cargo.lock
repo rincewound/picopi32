@@ -7,10 +7,6 @@ name = "bomberman"
 version = "0.1.0"
 
 [[package]]
-name = "chip"
-version = "0.1.0"
-
-[[package]]
 name = "core0"
 version = "0.1.0"
 
