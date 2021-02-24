@@ -3,20 +3,12 @@
 version = 3
 
 [[package]]
-name = "bomberman"
+name = "chip"
 version = "0.1.0"
 
 [[package]]
-name = "core0"
-version = "0.1.0"
-
-[[package]]
-name = "core1"
-version = "0.1.0"
-
-[[package]]
-name = "tests"
+name = "main"
 version = "0.1.0"
 dependencies = [
- "core1",
+ "chip",
 ]
