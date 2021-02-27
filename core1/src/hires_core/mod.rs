@@ -243,20 +243,41 @@ use crate::Display;
 use crate::DisplayIrq;
 use crate::GfxCore;
 
+pub struct RegisterSet
+{
+    
+    pub OutputEnable: bool,      // Toggles on screen output
+    pub LENDIrqEnable: bool,     // Toggles line end interrupt
+    pub LYXIrqEnable: bool,     // Toggles the Line Comparator Interrupt
+    pub RFU0:          u8,
+    pub LYCCompare:   u16,         // Line to trigger the Line Comparator at
+    pub xshift:       u16,
+    pub yshift:       u16,
+    pub RFU1:          u8,
+    pub RFU2:          u8,
+}
+
 pub struct HiResCore<I: DisplayIrq>
 {
     display_irq: I,
-    scanline: u8
+    scanline: u16,
+    registers: *mut RegisterSet
 }
 
 impl<I: DisplayIrq> HiResCore<I>
 {
-    pub fn new(display_irq: I) -> Self
+    pub fn new(display_irq: I, register_adr: *mut u8) -> Self
     {
-        return Self{
-            display_irq,
-            scanline: 0
-        };
+        unsafe
+        {
+            let adr = core::mem::transmute::<*mut u8, *mut RegisterSet>(register_adr);
+        
+            return Self{
+                display_irq,
+                scanline: 0,
+                registers: adr
+            };
+        }
     }
 }
 
@@ -264,6 +285,14 @@ impl <I: DisplayIrq> GfxCore for HiResCore<I>
 {
     fn render_scanline(&mut self) {
         self.scanline += 1;
+
+        unsafe 
+        {
+            if (*self.registers).LYXIrqEnable && (*self.registers).LYCCompare == self.scanline
+            {
+                self.display_irq.trigger_irq(super::Irq::Scanline{scanline_index: self.scanline as usize});
+            }
+        }
 
         if self.scanline > 239
         {

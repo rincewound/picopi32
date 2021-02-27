@@ -3,8 +3,8 @@
 mod hires_core_tests
 {
     use rstest::*;
-    use core1::{DisplayIrq, GfxCore, hires_core::HiResCore};
-    use std::{borrow::BorrowMut, cell::RefCell, rc::Rc};
+    use core1::{DisplayIrq, GfxCore, hires_core::{HiResCore, RegisterSet}};
+    use std::{cell::RefCell};
 
     struct FakeIrqData
     {
@@ -25,6 +25,7 @@ mod hires_core_tests
     }
 
     thread_local!(static irqData: RefCell<FakeIrqData> = RefCell::new(FakeIrqData::new()));
+    thread_local!(static memory: RefCell<[u8; 1024 * 32]> = RefCell::new([0; 1024*32]));
 
     pub struct FakeIrq
     {
@@ -45,10 +46,20 @@ mod hires_core_tests
         }
     }
 
+    pub fn get_reg_ptr() -> *mut RegisterSet
+    {
+        unsafe 
+        {
+            let memory_address = memory.with(|data|{return data.borrow_mut().as_mut_ptr();});
+            return std::mem::transmute::<*mut u8, *mut RegisterSet>(memory_address);
+        }
+    }
+
     pub fn hirescore () -> HiResCore<FakeIrq>
     {
+        let memory_address = memory.with(|data|{return data.borrow_mut().as_mut_ptr();});
         let irq = FakeIrq {};
-        return HiResCore::<FakeIrq>::new(irq);
+        return HiResCore::<FakeIrq>::new(irq, memory_address);
     }
 
     #[rstest]
@@ -66,6 +77,24 @@ mod hires_core_tests
         core.render_scanline();
         let line_irq = irqData.with(|data|{ return (*data.borrow()).vsync_irq; });
         assert!(line_irq == 1);
+    }
 
+    #[rstest]
+    pub fn will_trigger_lineend_irq_if_enabled()
+    {
+        let mut core = hirescore();
+        let mut reg_set = get_reg_ptr();
+        unsafe
+        {
+            (*reg_set).LENDIrqEnable = true;
+            (*reg_set).LYXIrqEnable = true;
+            (*reg_set).LYCCompare = 2;
+        }
+        core.render_scanline();
+        let mut line_irq = irqData.with(|data|{ return (*data.borrow()).line_irq; });
+        assert!(line_irq == 0);
+        core.render_scanline();
+        line_irq = irqData.with(|data|{ return (*data.borrow()).line_irq; });        
+        assert!(line_irq == 1);
     }
 }
