@@ -239,15 +239,36 @@ Using the core
 
 */
 
-struct HiResCore
-{
+use crate::Display;
+use crate::DisplayIrq;
+use crate::GfxCore;
 
+pub struct HiResCore<I: DisplayIrq>
+{
+    display_irq: I,
+    scanline: u8
 }
 
-impl HiResCore
+impl<I: DisplayIrq> HiResCore<I>
 {
-    pub fn new() -> Self
+    pub fn new(display_irq: I) -> Self
     {
-        return Self{};
+        return Self{
+            display_irq,
+            scanline: 0
+        };
+    }
+}
+
+impl <I: DisplayIrq> GfxCore for HiResCore<I>
+{
+    fn render_scanline(&mut self) {
+        self.scanline += 1;
+
+        if self.scanline > 239
+        {
+            self.display_irq.trigger_irq(super::Irq::VSync);
+            self.scanline = 0;
+        }
     }
 }

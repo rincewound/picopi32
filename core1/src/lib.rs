@@ -31,7 +31,8 @@ const DISPLAY_HEIGHT: usize = 240;
 
 pub trait GfxCore
 {
-    fn tick(&mut self);
+    fn render_scanline(&mut self);
 }
 
 pub mod debug_core;
+pub mod hires_core;

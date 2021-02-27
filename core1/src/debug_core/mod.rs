@@ -23,8 +23,8 @@ impl<D: Display, I: DisplayIrq> DebugGfxCore<D, I>
 
 impl <D: Display, I: DisplayIrq> GfxCore for DebugGfxCore<D, I>
 {
-    fn tick(&mut self)
-    {
+    fn render_scanline(&mut self) {
+        /* To Do: Fix this to actually only render a single scanline! */
         for line_index in 0..crate::DISPLAY_HEIGHT
         {
             for _ in 0..crate::DISPLAY_WIDTH
