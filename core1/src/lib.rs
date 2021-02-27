@@ -10,7 +10,8 @@ pub struct Color
 pub enum Irq
 {
     Scanline{scanline_index: usize},        // The Scanline IRQ is triggered, when the GfxCore has finished drawing a scanline
-    VSync                                   // The VSync IRQ is triggered, when the GfxCore has finished drawing a complete image
+    VSync,                                  // The VSync IRQ is triggered, when the GfxCore has finished drawing a complete image
+    DmaComplete
 }
 
 pub trait Display
