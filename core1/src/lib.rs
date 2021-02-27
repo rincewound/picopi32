@@ -1,5 +1,7 @@
 #![no_std]
 
+
+#[derive(Copy, Clone)]
 pub struct Color
 {
     pub r: u8,

@@ -237,11 +237,52 @@ Using the core
 * Load all graphics to RAM before use, QSPI is usable with it's own address region but
   it will probably introduce performance problems
 
+
+Using the core for the simulation target:
+* The core takes a raw pointer to a preallocated bit of memory. It will store its
+virtual registers there. To use the core in the simulation use a preallocated bit of
+memory, convert it into a ptr and pass it to the core.
+
+!! Attention !! This will obivously involve unsafe code, be extra aware when setting up the simulation !!
+
 */
 
-use crate::Display;
+use core::u16;
+
+use crate::{Color, Display};
 use crate::DisplayIrq;
 use crate::GfxCore;
+
+pub enum StorageMode
+{
+    FourBit,
+    EightBit
+}
+
+pub struct PixelAtlas
+{
+    pub data: *const u8,
+    pub sizex: u16,
+    pub sizey: u16,
+    pub storage_mode: StorageMode
+}
+
+pub struct Tile
+{
+    pub atlas_id: u8,
+    pub tile_id: u8,
+    pub palette_id: u8,
+    RFU: u8
+}
+
+pub struct Layer
+{
+    pub tilex: u8,
+    pub tiley: u8,
+    pub scrollx: u16,
+    pub scrolly: u16,
+    pub Tiles: [Tile; 40*30]
+}
 
 pub struct RegisterSet
 {
@@ -255,18 +296,22 @@ pub struct RegisterSet
     pub yshift:       u16,
     pub RFU1:          u8,
     pub RFU2:          u8,
+    pub pixel_atlasses: [PixelAtlas; 16],
+    pub layers: [Layer; 4],
+    pub palettes: [*const u8; 32]
 }
 
-pub struct HiResCore<I: DisplayIrq>
+pub struct HiResCore<I: DisplayIrq, D: crate::Display>
 {
     display_irq: I,
+    display: D,
     scanline: u16,
     registers: *mut RegisterSet
 }
 
-impl<I: DisplayIrq> HiResCore<I>
+impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
 {
-    pub fn new(display_irq: I, register_adr: *mut u8) -> Self
+    pub fn new(display_irq: I, display: D, register_adr: *mut u8) -> Self
     {
         unsafe
         {
@@ -274,6 +319,7 @@ impl<I: DisplayIrq> HiResCore<I>
         
             return Self{
                 display_irq,
+                display,
                 scanline: 0,
                 registers: adr
             };
@@ -287,12 +333,56 @@ impl<I: DisplayIrq> HiResCore<I>
             return &mut *self.registers;
         }
     }
+
+    fn get_colorindex_from_atlas(&self, atlas_id: u8, tile_id: u16, tilew: u8, tileh: u8, pixelx: u16, pixely: u16, palette_id: u8) -> Option<Color>
+    {
+        return None;
+    }
+
+    fn render_scanline_pixels(&mut self)
+    {
+        let current_scanline = self.scanline;
+        
+        for pixel in 0..crate::DISPLAY_WIDTH
+        {
+            /* Resolve pixelcolor, check all layers: */
+            for i in 0..4
+            {
+                {
+                    let regs = self.get_registers();
+                    // calculate correct tile in this layer
+                    let row = current_scanline / regs.layers[i].tiley as u16;
+                    let col = pixel as u16 / regs.layers[i].tilex as u16;
+                    let tile_id = row * 40 + col as u16;
+                    let tile_pixel = pixel  as u16 % regs.layers[i].tilex as u16;
+                    let tile_pixel_y = current_scanline % regs.layers[i].tiley  as u16;
+                    let the_tile = &regs.layers[i].Tiles[tile_id as usize];
+                    // we now have the palette entry for the pixel i tile_pixel, 
+                    // retrieve the actual color:
+                    let palette_id = the_tile.palette_id;
+                    let atlas_id = the_tile.atlas_id;
+                }
+
+                let color = self.get_colorindex_from_atlas(atlas_id, tile_id, regs.layers[i].tilex, regs.layers[i].tiley, tile_pixel, tile_pixel_y, palette_id);
+                if let Some(col) = color
+                {
+                    self.display.push_pixel(col);
+                    break;
+                }
+            }
+
+            /* self.display.push_pixel() */ 
+        }
+
+    }
 }
 
-impl <I: DisplayIrq> GfxCore for HiResCore<I>
+impl <I: DisplayIrq, D: Display> GfxCore for HiResCore<I,D>
 {
     fn render_scanline(&mut self) {
         self.scanline += 1;
+        self.render_scanline_pixels();
+
         let regs = self.get_registers();
 
         if regs.LYXIrqEnable && regs.LYCCompare == self.scanline

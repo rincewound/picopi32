@@ -3,8 +3,34 @@
 mod hires_core_tests
 {
     use rstest::*;
-    use core1::{DisplayIrq, GfxCore, hires_core::{HiResCore, RegisterSet}};
+    use core1::{Color, DisplayIrq, GfxCore, hires_core::{HiResCore, RegisterSet}};
     use std::{cell::RefCell};
+
+     pub struct FakeDisplay
+     {
+
+     }
+
+     impl core1::Display for FakeDisplay
+     {
+        fn push_pixel(&mut self, color: Color) 
+        {
+            rendered_pixels.with(|pixels|
+            {
+                pixels.borrow_mut().push(color);
+            });
+        }
+
+        fn reset_position(&mut self) 
+        {
+        
+        }
+
+        fn show_screen(&mut self) 
+        {
+        
+        }
+     }
 
     struct FakeIrqData
     {
@@ -25,7 +51,10 @@ mod hires_core_tests
     }
 
     thread_local!(static irqData: RefCell<FakeIrqData> = RefCell::new(FakeIrqData::new()));
-    thread_local!(static memory: RefCell<[u8; 1024 * 32]> = RefCell::new([0; 1024*32]));
+    thread_local!(static register_memory: RefCell<[u8; 1024 * 32]> = RefCell::new([0; 1024*32]));
+    thread_local!(static ram: RefCell<[u8; 1024 * 32]> = RefCell::new([0; 1024 * 32]));
+
+    thread_local!(static rendered_pixels: RefCell<Vec<Color>> = RefCell::new(Vec::new()));
 
     pub struct FakeIrq
     {
@@ -50,16 +79,54 @@ mod hires_core_tests
     {
         unsafe 
         {
-            let memory_address = memory.with(|data|{return data.borrow_mut().as_mut_ptr();});
+            let memory_address = register_memory.with(|data|{return data.borrow_mut().as_mut_ptr();});
             return std::mem::transmute::<*mut u8, *mut RegisterSet>(memory_address);
         }
     }
 
-    pub fn hirescore () -> HiResCore<FakeIrq>
+    pub fn get_ram_ptr(offset: usize) -> *const u8
     {
-        let memory_address = memory.with(|data|{return data.borrow_mut().as_mut_ptr();});
+        ram.with(|data|
+        {
+            let borrow = data.borrow();
+            let theref: *const u8 = &borrow[offset] as *const u8 ;
+            return theref
+        })
+    }
+
+    pub fn hirescore () -> HiResCore<FakeIrq, FakeDisplay>
+    {
+        let memory_address = register_memory.with(|data|{return data.borrow_mut().as_mut_ptr();});
         let irq = FakeIrq {};
-        return HiResCore::<FakeIrq>::new(irq, memory_address);
+        let dsp = FakeDisplay{};
+        return HiResCore::<FakeIrq, FakeDisplay>::new(irq, dsp, memory_address);
+    }
+
+    pub fn make_pixel_data()
+    {
+        ram.with(|ram_cell|
+        {
+            let mut borrow = ram_cell.borrow_mut();
+            // we make a 32 x 32 pixel gradient, starting at 0x00
+            for i in 0..32
+            {
+                for i2 in 0..32
+                {
+                    let offset = i * 32 + i;
+                    borrow[offset] = i as u8;
+                }
+            }
+
+            // Further, we make a palette at 32x32 + 1
+            let palette_start = 32 * 32 + 1;
+            for i in 1..64      // don't touch color 0 , this is transparent
+            {
+                let offset = palette_start + (i * 3);
+                borrow[offset + 0] = i as u8;
+                borrow[offset + 1] = 2*i as u8;
+                borrow[offset + 2] = 3*i as u8;
+            }
+        });
     }
 
     #[rstest]
@@ -96,5 +163,33 @@ mod hires_core_tests
         core.render_scanline();
         line_irq = irqData.with(|data|{ return (*data.borrow()).line_irq; });        
         assert!(line_irq == 1);
+    }
+
+    #[rstest]
+    pub fn will_render_correct_value()
+    {
+        let mut core = hirescore();
+        let mut reg_set = get_reg_ptr();
+        make_pixel_data();
+        unsafe 
+        {
+            let regref = &mut *reg_set;
+            
+            regref.layers[0].tilex = 16;
+            regref.layers[0].tiley = 16;
+            regref.layers[0].scrollx = 0;
+            regref.layers[0].scrolly = 0;
+            regref.layers[0].Tiles[0].atlas_id = 1;
+            regref.layers[0].Tiles[0].tile_id = 1;
+            regref.layers[0].Tiles[0].palette_id = 0;   // Ignored for now
+            regref.palettes[0] = get_ram_ptr(32*32 + 1);
+            regref.pixel_atlasses[1].data = get_ram_ptr(0);
+            regref.pixel_atlasses[1].sizex = 32;
+            regref.pixel_atlasses[1].sizey = 32;
+            regref.pixel_atlasses[1].storage_mode = core1::hires_core::StorageMode::EightBit;
+        }
+        core.render_scanline();
+        // At this point we should should find the color 0x01/0x02/0x03 at position 0 in the display:
+        let color = rendered_pixels.with(|pxl| pxl.borrow()[0]);
     }
 }
