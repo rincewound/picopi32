@@ -279,19 +279,25 @@ impl<I: DisplayIrq> HiResCore<I>
             };
         }
     }
+
+    pub fn get_registers(&mut self) -> &mut RegisterSet
+    {
+        unsafe 
+        {
+            return &mut *self.registers;
+        }
+    }
 }
 
 impl <I: DisplayIrq> GfxCore for HiResCore<I>
 {
     fn render_scanline(&mut self) {
         self.scanline += 1;
+        let regs = self.get_registers();
 
-        unsafe 
+        if regs.LYXIrqEnable && regs.LYCCompare == self.scanline
         {
-            if (*self.registers).LYXIrqEnable && (*self.registers).LYCCompare == self.scanline
-            {
-                self.display_irq.trigger_irq(super::Irq::Scanline{scanline_index: self.scanline as usize});
-            }
+            self.display_irq.trigger_irq(super::Irq::Scanline{scanline_index: self.scanline as usize});
         }
 
         if self.scanline > 239
