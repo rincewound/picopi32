@@ -1,16 +1,15 @@
 /*
 The hires core is the default gfx core and allows the use of up to 128 sprites of
-arbitrary sizes as well as up to 6 layers
+arbitrary sizes as well as up to 4 layers
 
 Layer 0:
 The first layer is the foreground layer. Contents of this layer will be drawn over sprites
 
-Layer 1 - 5:
+Layer 1 - 3:
 The background layers
 
 Each layer consists of individual tiles, that are all uniform in size for a given layer. Each
-layer can contain up 80 x 60 Tiles, allowing to store 2x2 full screens worth of tiles if 8x8 px
-tiles are used and a lot more if larger tiles are used.
+layer can contain up 40 x 30 Tiles
 
 # The Tilemap
 A tilemap of a layer stores a 2 byte index into the tileatlas indicating which graphic is displayed
@@ -80,7 +79,9 @@ struct Tile
     atlas_id: u8,
     tile_id: u8
     palette_id: u8,
+    RFU: u8         // For alignment/performance purposes, will be used later
 }
+Size: 4 Byte
 
 and further to the following struct that describes a layer:
 
@@ -88,9 +89,12 @@ struct Layer
 {
      tilex: u8,
      tiley: u8,
-     scrollx: u16,
-     scrolly: u16
+     scrollx: u16,      // in pixels
+     scrolly: u16       // in pixels
+     Tiles: [Tile; 40*30]
 }
+
+Size: 4808 Byte (incl Padding)
 
 and this is for the atlas:
 
@@ -101,6 +105,7 @@ struct PixelAtlas
     sizey: usize
     storagemode: storagemode    // this can bei either StorageMode::4Bit (=0) oder StorageMode::8Bit(=1)
 }
+Size: 16 Byte (incl Padding)
 
 Sprites:
 A sprite is a hunk of pixeldata that has a size and a location attached. Sprites reference data from a pixelatlas
@@ -116,7 +121,13 @@ struct Sprite
     atlasw: usize
     atlash: usize
     atlas_id: u8
+    RFU:      u8
+    RFU:      u8
+    RFU:      u8
 }
+
+Size: 64 Byte
+
 
 -> A difference between w/h and altasw/atlash will cause the core to interpolate. It will always use nearest neighbor interpolation
 -> Note that there is no guaranteed order in which sprites are drawn. The core will sort the sprites by y coordinate in order to
@@ -153,9 +164,17 @@ fps goal. The pixelclock calculates as:
 (320 * 240) / 25.6 = 3000 pixel/ms, with each pixel = 2 byte -> 6000 byte/ms -> 6.000.000 byte/s ~ 48   MHz SPI clock
 (320 * 240) / 32.6 = 2355 pixel/ms, with each pixel = 2 byte -> 4710 byte/ms -> 4.710.000 byte/s ~ 37.7 MHz SPI clock
 
--> This leaves only 2-3 cylces per pixel for the core
+CPU Clocks per Pixel then equals:
+133 000 cycles/ms / 3000 pixl/ms  = ~28 cycles per Pixel
+-> We need about 2 cycles to load a halfword
+-> Simple arithmetic ops (ie. add/sub) take 1 cylce
+-> We sadly cannot do blits due to:
+    * Palettes needing an inderection to resolve color
+    * Transparency requiring us to look at each pixel
 
 * The targetdisplay uses 16 bit color!
+
+* We assume this works, otherwise we will have to fallback to monochrome, i.e. 1 Bit/pixel.
 
 Virtual Registers & DMA
 -----------------------
@@ -171,10 +190,16 @@ GfxControlRegister (RP2040 0x20000 TBD!)
     OutputEnable: boolean       // Toggles on screen output
     LENDIrqEnable: boolean      // Toggles line end interrupt
     LYXIrqEnable: boolean       // Toggles the Line Comparator Interrupt
+    RFU:          u8
     LYCCompare:   u16           // Line to trigger the Line Comparator at
     xshift:       u16
     yshift:       u16
+    RFU:          u8
+    RFU:          u8
+    pixel_atlasses: [PixelAtlas; 16]       // stores memory address for each all atlases
 }
+
+Size: 268 Byte
 
 DmaControlRegister (RP2040 0x20020 TBD!)
 {
@@ -183,4 +208,46 @@ DmaControlRegister (RP2040 0x20020 TBD!)
     size:           usize
 }
 
+Size: 6 Byte
+
+SpriteControlReg (RP2040 0x20020 TBD!)
+{
+    sprites:   [Sprite; 128]
+}
+Size 8192 Byte
+
+LayerControlRegister
+{
+    layers: [Layer; 4]
+}
+19200 Byte
+
+
+Total:
+The core needs about 27 KiB of RAM for resources, this excludes 
+any workram and actual graphics.
+
+Using the core
+* During normal operation the core will emit a VSync IRQ after each rendered frame,
+  use the ISR to setup DMA transfers using the DMAControlRegister.
+* Use DMA Transfers to setup backgroundlayers and sprite properties en bulk.
+* Use single writes to change few thing
+* Don't violate the 5 ms VBlank, as it will result in undefined behavior
+* Don't write to memoryareas that are affected by a pending DMA Transfer
+* Load all graphics to RAM before use, QSPI is usable with it's own address region but
+  it will probably introduce performance problems
+
 */
+
+struct HiResCore
+{
+
+}
+
+impl HiResCore
+{
+    pub fn new() -> Self
+    {
+        return Self{};
+    }
+}
