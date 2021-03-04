@@ -87,8 +87,8 @@ and further to the following struct that describes a layer:
 
 struct Layer
 {
-     tilex: u8,
-     tiley: u8,
+     tilex: u8,         // TBD: This should be a power of 2
+     tiley: u8,         // TBD: This should be a power of 2
      scrollx: u16,      // in pixels
      scrolly: u16       // in pixels
      Tiles: [Tile; 40*30]
@@ -101,8 +101,8 @@ and this is for the atlas:
 struct PixelAtlas
 {   
     address: ptr
-    sizex: usize
-    sizey: usize
+    sizex: usize                // TBD: This should be a power of 2
+    sizey: usize                // TBD: This should be a power of 2
     storagemode: storagemode    // this can bei either StorageMode::4Bit (=0) oder StorageMode::8Bit(=1)
 }
 Size: 16 Byte (incl Padding)
@@ -236,6 +236,8 @@ Using the core
 * Don't write to memoryareas that are affected by a pending DMA Transfer
 * Load all graphics to RAM before use, QSPI is usable with it's own address region but
   it will probably introduce performance problems
+* Use the outputenable register to disable the core if you need an elaborate setup
+  routine.
 
 
 Using the core for the simulation target:
@@ -245,6 +247,24 @@ memory, convert it into a ptr and pass it to the core.
 
 !! Attention !! This will obivously involve unsafe code, be extra aware when setting up the simulation !!
 
+Error handling:
+The core exposes an error register. It will store all errors in that register. Further, it
+will stop rendering as long as a value != 0 is in the register.
+
+# Effects
+With the current design a couple of effects can be archieved easily, 
+
+## Palette Rotation
+By shifting the startpointer of a palette along its memory a palette rotation effect
+can be created. If you attempt to do this make sure, that the graphics the rotation is
+applied to don't use the full 256 entries of the palette.
+
+## Screenwobble
+Use the Scanline Interrupt to set the X scrolloffset
+
+## Parallax Scrolling
+...is easily archieved by using layers with different scroll offsets.
+
 */
 
 use core::u16;
@@ -253,6 +273,23 @@ use crate::{Color, Display};
 use crate::DisplayIrq;
 use crate::GfxCore;
 
+const MAX_PALETTES: usize = 32;
+const NUM_LAYERS: usize = 4;
+const MAX_ATLASSES: usize = 16;
+
+#[repr(u8)]
+pub enum GfxError
+{
+    Ok,
+    BadAtlasId,     // Tried to access an atlas with an invalid id
+    BadAtlasPtr,    // Atlas has no mem assigned
+    BadAtlasSize,   // Tried to retrieve an entry that was outside of atlas bounds
+    BadStorageMode, // Encountered atlass with invalid storage mode
+    BadPaletteId,   // Tried to use a palett with an invalid id
+    BadPalettePtr,  // Palette has no mem assigned    
+}
+
+#[derive(PartialEq)]
 pub enum StorageMode
 {
     FourBit,
@@ -267,12 +304,13 @@ pub struct PixelAtlas
     pub storage_mode: StorageMode
 }
 
+#[derive(Copy, Clone)]
 pub struct Tile
 {
     pub atlas_id: u8,
     pub tile_id: u8,
     pub palette_id: u8,
-    RFU: u8
+    _rfu: u8
 }
 
 pub struct Layer
@@ -281,7 +319,7 @@ pub struct Layer
     pub tiley: u8,
     pub scrollx: u16,
     pub scrolly: u16,
-    pub Tiles: [Tile; 40*30]
+    pub tiles: [Tile; 40*30]
 }
 
 pub struct RegisterSet
@@ -296,9 +334,10 @@ pub struct RegisterSet
     pub yshift:       u16,
     pub RFU1:          u8,
     pub RFU2:          u8,
-    pub pixel_atlasses: [PixelAtlas; 16],
-    pub layers: [Layer; 4],
-    pub palettes: [*const u8; 32]
+    pub lastErr:       u8,      // Contains the last encountered error
+    pub pixel_atlasses: [PixelAtlas; MAX_ATLASSES],
+    pub layers: [Layer; NUM_LAYERS],
+    pub palettes: [*const u8; MAX_PALETTES]
 }
 
 pub struct HiResCore<I: DisplayIrq, D: crate::Display>
@@ -326,7 +365,7 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
         }
     }
 
-    pub fn get_registers(&mut self) -> &mut RegisterSet
+    pub fn get_registers_mut(&mut self) -> &mut RegisterSet
     {
         unsafe 
         {
@@ -334,44 +373,202 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
         }
     }
 
-    fn get_colorindex_from_atlas(&self, atlas_id: u8, tile_id: u16, tilew: u8, tileh: u8, pixelx: u16, pixely: u16, palette_id: u8) -> Option<Color>
+    pub fn get_registers(&self) -> &RegisterSet
     {
-        return None;
+        unsafe 
+        {
+            return &*self.registers;
+        }
+    }
+
+    fn get_atlas_data(&self, atlas_id: u8, offset: usize) -> Result<u8, GfxError>
+    {
+        if atlas_id > MAX_ATLASSES as u8
+        {
+            return Err(GfxError::BadAtlasId);
+        }
+
+        let atlas = &self.get_registers().pixel_atlasses[atlas_id as usize];
+        let data_ptr = atlas.data;
+        if data_ptr.is_null()
+        {
+            return Err(GfxError::BadAtlasPtr);
+        }
+        
+        // Calculate the  byteoffset into the atlas. This is dependent
+        // on the atlas storage type, as for 4 bit we have 2 pixels per
+        // byte
+        let byte_offset: usize;
+        let pixels_in_atlas: usize;
+        if atlas.storage_mode == StorageMode::EightBit
+        {
+            byte_offset = offset;
+            pixels_in_atlas = atlas.sizex as usize * atlas.sizey as usize;
+        }
+        else if atlas.storage_mode == StorageMode::FourBit
+        {            
+            byte_offset = (offset & 0xFFFFFFFE) / 2 + (offset & 0x1);
+            pixels_in_atlas = atlas.sizex as usize * atlas.sizey as usize * 2;
+        } 
+        else
+        {
+            // errorcase, since we're potentially dealing
+            // with raw memory, we can't use a match, as we
+            // possible find values that don't exist in the
+            // enum. In this case we err out.
+            return Err(GfxError::BadStorageMode);
+        }
+
+        if byte_offset > pixels_in_atlas
+        {
+            return Err(GfxError::BadAtlasSize);
+        }
+
+        unsafe 
+        {
+            let atlas_byte = data_ptr.offset(byte_offset as isize);
+            return Ok(*atlas_byte);
+
+        }
+    }
+
+    fn get_colorindex_from_atlas(&self, atlas_id: u8, tile_id: u16, tilew: u8, tileh: u8, pixelx: u16, pixely: u16) -> Result<u8, GfxError>
+    {
+        let tile_row = tile_id / tilew as u16;
+        let offset = tile_row as usize * tilew  as usize * tileh  as usize + pixely  as usize  * tilew as usize + pixelx as usize;
+        let atlas_data = self.get_atlas_data(atlas_id, offset)?;
+
+        return Ok(atlas_data);        
+    }
+
+    fn retrieve_palette_entry(&self, palette_id: u8, entry_id: u8) -> Result<Color, GfxError>
+    {
+        if entry_id as usize > MAX_PALETTES
+        {
+            return Err(GfxError::BadPaletteId);
+        }
+        let palette = &self.get_registers().palettes[palette_id as usize];
+        if palette.is_null()
+        {
+            return Err(GfxError::BadAtlasPtr);
+        }
+
+        unsafe 
+        {
+            let r = palette.offset(3 * entry_id as isize);
+            let g = r.offset(1);
+            let b = r.offset(2);
+            return Ok(Color{r: *r, g: *g, b: *b});
+        }        
+    }
+
+    fn get_layer_pixel(&mut self, pixel_index: u16, layer_index: usize) -> Result<Option<Color>, GfxError>
+    {
+        let current_scanline = self.scanline;
+        let atlas_id;
+        let tile_id;
+        let tile_pixel_x;
+        let tile_pixel_y ;
+        let palette_id;
+        let tile_src_w ;
+        let tile_src_h;
+        let the_tile;
+        {
+            let regs = self.get_registers_mut();
+
+            if regs.layers[layer_index].tilex == 0 || regs.layers[layer_index].tiley == 0
+            {
+                return Ok(None);
+            }
+
+            /*
+                Note: This innerloop is quite expensive as it requires
+                4 divisions to perform the lookup of the tile. We could
+                replace them with bitshifts and bitwise logic, if we
+                opt to only ever use  power of 2 graphic sizes for
+                pixel atlasses and tiles!
+            */
+
+            // calculate correct tile in this layer
+            let row = current_scanline / regs.layers[layer_index].tiley as u16;
+            let col = pixel_index as u16 / regs.layers[layer_index].tilex as u16;
+            tile_id = row * 40 + col as u16;
+            tile_pixel_x = pixel_index  as u16 % regs.layers[layer_index].tilex as u16;
+            tile_pixel_y = current_scanline % regs.layers[layer_index].tiley  as u16;
+            the_tile = regs.layers[layer_index].tiles[tile_id as usize];
+            // we now have the palette entry for the pixel i tile_pixel, 
+            // retrieve the actual color:
+            palette_id = the_tile.palette_id;
+            atlas_id = the_tile.atlas_id;
+            tile_src_w = regs.layers[layer_index].tilex;
+            tile_src_h = regs.layers[layer_index].tiley;
+
+        }
+
+        let color_index = self.get_colorindex_from_atlas(atlas_id, the_tile.tile_id as u16, tile_src_w, tile_src_h, tile_pixel_x, tile_pixel_y);
+        if let Ok(col) = color_index
+        {
+            if col == 0     // 0 is the transparent color index and is never rendered!     
+            {
+                return Ok(None);
+            }                              
+
+            let the_color = self.retrieve_palette_entry(palette_id, col);
+            if let Ok(res_color) = the_color
+            {
+                return Ok(Some(res_color))
+            }
+            else
+            {
+                return Err(the_color.unwrap_err());
+            }
+        }
+        else
+        {
+            return Err(color_index.unwrap_err());
+        }
+        
     }
 
     fn render_scanline_pixels(&mut self)
     {
-        let current_scanline = self.scanline;
-        
+
         for pixel in 0..crate::DISPLAY_WIDTH
         {
             /* Resolve pixelcolor, check all layers: */
-            for i in 0..4
+            let mut pixel_rendered = false;
+            for i in 0..NUM_LAYERS
             {
+                let color = self.get_layer_pixel(pixel as u16, i);
+                if let Ok(output_pixel) = color
                 {
-                    let regs = self.get_registers();
-                    // calculate correct tile in this layer
-                    let row = current_scanline / regs.layers[i].tiley as u16;
-                    let col = pixel as u16 / regs.layers[i].tilex as u16;
-                    let tile_id = row * 40 + col as u16;
-                    let tile_pixel = pixel  as u16 % regs.layers[i].tilex as u16;
-                    let tile_pixel_y = current_scanline % regs.layers[i].tiley  as u16;
-                    let the_tile = &regs.layers[i].Tiles[tile_id as usize];
-                    // we now have the palette entry for the pixel i tile_pixel, 
-                    // retrieve the actual color:
-                    let palette_id = the_tile.palette_id;
-                    let atlas_id = the_tile.atlas_id;
+                    if let Some(pixel_color) = output_pixel
+                    {
+                        self.display.push_pixel(pixel_color);
+                        pixel_rendered = true;
+                        break;
+                    }
                 }
-
-                let color = self.get_colorindex_from_atlas(atlas_id, tile_id, regs.layers[i].tilex, regs.layers[i].tiley, tile_pixel, tile_pixel_y, palette_id);
-                if let Some(col) = color
+                else
                 {
-                    self.display.push_pixel(col);
-                    break;
-                }
+                    self.get_registers_mut().lastErr = color.unwrap_err() as u8;
+                    // We abort this scanline immediately, thisway the "user" should
+                    // be able to spot the pixel where things went wrong
+                    return;
+                }                
             }
 
-            /* self.display.push_pixel() */ 
+            /* 
+                This pixel could not be assigned a color. This can have a variety of reasons,
+                e.g. no layer returned a color value (all returned  index 0) or no layer was
+                setup in the first place.
+                Since we have to output something, we use a signal value (bright green!)
+             */
+             if !pixel_rendered
+             {
+
+                self.display.push_pixel(Color{r:0, g: 255, b:0});
+             }
         }
 
     }
@@ -380,20 +577,50 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
 impl <I: DisplayIrq, D: Display> GfxCore for HiResCore<I,D>
 {
     fn render_scanline(&mut self) {
+
+        let regs = self.get_registers();
+        if regs.lastErr != 0
+        {
+            /* 
+                If we encountered an error in a previous frame
+                we don't generate output at all. The other core
+                is responsible for setting us up correctly.
+            */
+            return;
+        } 
+
+        // if regs.OutputEnable == true
+        // {
+        //     /* only if the other core enabled the output, we render
+        //        anything.
+        //     */
+        //     return;
+        // }
+
         self.scanline += 1;
         self.render_scanline_pixels();
 
-        let regs = self.get_registers();
+        let regs = self.get_registers_mut();
 
         if regs.LYXIrqEnable && regs.LYCCompare == self.scanline
         {
             self.display_irq.trigger_irq(super::Irq::Scanline{scanline_index: self.scanline as usize});
         }
 
-        if self.scanline > 239
+        if self.scanline > (crate::DISPLAY_HEIGHT - 1) as u16
         {
             self.display_irq.trigger_irq(super::Irq::VSync);
             self.scanline = 0;
         }
+    }
+
+    fn render_frame(&mut self) {
+        for _ in 0..crate::DISPLAY_HEIGHT
+        {
+            self.render_scanline();
+            // ToDo: Sleep for 1300 ops
+        }
+        self.display.show_screen();
+        // ToDo: Sleep for 660kops
     }
 }

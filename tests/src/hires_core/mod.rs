@@ -3,7 +3,7 @@
 mod hires_core_tests
 {
     use rstest::*;
-    use core1::{Color, DisplayIrq, GfxCore, hires_core::{HiResCore, RegisterSet}};
+    use core1::{Color, DisplayIrq, GfxCore, hires_core::{GfxError, HiResCore, RegisterSet}};
     use std::{cell::RefCell};
 
      pub struct FakeDisplay
@@ -112,8 +112,8 @@ mod hires_core_tests
             {
                 for i2 in 0..32
                 {
-                    let offset = i * 32 + i;
-                    borrow[offset] = i as u8;
+                    let offset = i * 32 + i2;
+                    borrow[offset] = (1 + i * 2)  as u8;
                 }
             }
 
@@ -179,9 +179,9 @@ mod hires_core_tests
             regref.layers[0].tiley = 16;
             regref.layers[0].scrollx = 0;
             regref.layers[0].scrolly = 0;
-            regref.layers[0].Tiles[0].atlas_id = 1;
-            regref.layers[0].Tiles[0].tile_id = 1;
-            regref.layers[0].Tiles[0].palette_id = 0;   // Ignored for now
+            regref.layers[0].tiles[0].atlas_id = 1;
+            regref.layers[0].tiles[0].tile_id = 1;
+            regref.layers[0].tiles[0].palette_id = 0;
             regref.palettes[0] = get_ram_ptr(32*32 + 1);
             regref.pixel_atlasses[1].data = get_ram_ptr(0);
             regref.pixel_atlasses[1].sizex = 32;
@@ -191,5 +191,77 @@ mod hires_core_tests
         core.render_scanline();
         // At this point we should should find the color 0x01/0x02/0x03 at position 0 in the display:
         let color = rendered_pixels.with(|pxl| pxl.borrow()[0]);
+        assert!(color.r == 1 && color.g == 2 && color.b == 3);
+    }
+
+    #[rstest]
+    pub fn will_render_green_output_if_nothing_was_setup()
+    {
+        let mut core = hirescore();
+        let mut reg_set = get_reg_ptr();  
+        core.render_scanline();
+        let color = rendered_pixels.with(|pxl| pxl.borrow()[0]);
+        assert!(color.r == 0 && color.g == 255 && color.b == 0);  
+    }
+
+    #[rstest]
+    pub fn will_set_error_if_bad_atlas_id()
+    {
+        let mut core = hirescore();
+        let mut reg_set = get_reg_ptr();
+        unsafe 
+        {
+            let regref = &mut *reg_set;
+            
+            regref.layers[0].tilex = 16;
+            regref.layers[0].tiley = 16;
+            regref.layers[0].scrollx = 0;
+            regref.layers[0].scrolly = 0;
+            regref.layers[0].tiles[0].atlas_id = 1;
+            regref.layers[0].tiles[0].tile_id = 1;
+            regref.layers[0].tiles[0].palette_id = 0;
+            regref.palettes[0] = get_ram_ptr(32*32 + 1);
+            regref.pixel_atlasses[1].data = get_ram_ptr(0);
+            regref.pixel_atlasses[1].sizex = 32;
+            regref.pixel_atlasses[1].sizey = 32;
+            regref.pixel_atlasses[1].storage_mode = core1::hires_core::StorageMode::EightBit;
+        }
+        core.render_scanline();
+        unsafe 
+        {
+            assert!((*reg_set).lastErr == GfxError::BadAtlasPtr as u8)
+        }
+    }
+
+    
+    #[rstest]
+    pub fn will_set_error_if_bad_tile_id()
+    {
+        let mut core = hirescore();
+        let reg_set = get_reg_ptr();
+        unsafe 
+        {
+            let regref = &mut *reg_set;
+            
+            regref.layers[0].tilex = 16;
+            regref.layers[0].tiley = 16;
+            regref.layers[0].tiles[0].atlas_id = 1;
+            regref.layers[0].tiles[0].tile_id = 255;
+            regref.layers[0].tiles[0].palette_id = 0;
+            regref.palettes[0] = get_ram_ptr(32*32 + 1);
+            regref.pixel_atlasses[1].data = get_ram_ptr(0);
+            regref.pixel_atlasses[1].sizex = 32;
+            regref.pixel_atlasses[1].sizey = 32;
+            regref.pixel_atlasses[1].storage_mode = core1::hires_core::StorageMode::EightBit;
+        }
+        core.render_scanline();
+        unsafe 
+        {
+            assert!((*reg_set).lastErr == GfxError::BadAtlasSize as u8)
+        }
+
+        // nothing should be rendered in this case as well:
+        let has_rendered = rendered_pixels.with(|pxl| pxl.borrow().len() != 0);
+        assert!(has_rendered == false);
     }
 }

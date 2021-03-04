@@ -1,7 +1,7 @@
 #![no_std]
 
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Color
 {
     pub r: u8,
@@ -34,6 +34,7 @@ const DISPLAY_HEIGHT: usize = 240;
 pub trait GfxCore
 {
     fn render_scanline(&mut self);
+    fn render_frame(&mut self);
 }
 
 pub mod debug_core;

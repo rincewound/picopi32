@@ -37,4 +37,8 @@ impl <D: Display, I: DisplayIrq> GfxCore for DebugGfxCore<D, I>
 
         self.display.show_screen();
     }
+
+    fn render_frame(&mut self) {
+        todo!()
+    }
 }
