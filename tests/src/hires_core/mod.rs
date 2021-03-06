@@ -129,6 +129,61 @@ mod hires_core_tests
         });
     }
 
+    pub fn clear_mem()
+    {
+        ram.with(|ram_cell|
+            {
+                let mut borrow = ram_cell.borrow_mut();
+                // we make a 32 x 32 pixel gradient, starting at 0x00
+                for i in 0..32
+                {
+                    for i2 in 0..32
+                    {
+                        let offset = i * 32 + i2;
+                        borrow[offset] = 0  as u8;
+                    }
+                }
+    
+                // Further, we make a palette at 32x32 + 1
+                let palette_start = 32 * 32 + 1;
+                for i in 1..64      // don't touch color 0 , this is transparent
+                {
+                    let offset = palette_start + (i * 3);
+                    borrow[offset + 0] = 0 as u8;
+                    borrow[offset + 1] = 0 as u8;
+                    borrow[offset + 2] = 0 as u8;
+                }
+            });      
+    }
+
+    pub fn get_reg_ref() -> &'static mut RegisterSet
+    {
+        let reg_set = get_reg_ptr();
+        unsafe 
+        {
+            return &mut *reg_set;
+        }
+    }
+
+    pub fn make_default_data()
+    {
+        make_pixel_data();
+        let regref = get_reg_ref();
+        
+        regref.layers[0].tilex = 16;
+        regref.layers[0].tiley = 16;
+        regref.layers[0].tiles[0].atlas_id = 1;
+        regref.layers[0].tiles[0].tile_id = 1;
+        regref.layers[0].tiles[0].palette_id = 0;
+        regref.palettes[0] = get_ram_ptr(32*32 + 1);
+        regref.pixel_atlasses[1].data = get_ram_ptr(0);
+        regref.pixel_atlasses[1].sizex = 32;
+        regref.pixel_atlasses[1].sizey = 32;
+        regref.pixel_atlasses[1].storage_mode = core1::hires_core::StorageMode::EightBit;
+        regref.lastErr = 0;
+
+    }
+
     #[rstest]
     pub fn will_trigger_vsync_after_240_lines()
     {
@@ -150,13 +205,10 @@ mod hires_core_tests
     pub fn will_trigger_lineend_irq_if_enabled()
     {
         let mut core = hirescore();
-        let mut reg_set = get_reg_ptr();
-        unsafe
-        {
-            (*reg_set).LENDIrqEnable = true;
-            (*reg_set).LYXIrqEnable = true;
-            (*reg_set).LYCCompare = 2;
-        }
+        let mut reg_set = get_reg_ref();
+        reg_set.LENDIrqEnable = true;
+        reg_set.LYXIrqEnable = true;
+        reg_set.LYCCompare = 2;
         core.render_scanline();
         let mut line_irq = irqData.with(|data|{ return (*data.borrow()).line_irq; });
         assert!(line_irq == 0);
@@ -169,25 +221,7 @@ mod hires_core_tests
     pub fn will_render_correct_value()
     {
         let mut core = hirescore();
-        let mut reg_set = get_reg_ptr();
-        make_pixel_data();
-        unsafe 
-        {
-            let regref = &mut *reg_set;
-            
-            regref.layers[0].tilex = 16;
-            regref.layers[0].tiley = 16;
-            regref.layers[0].scrollx = 0;
-            regref.layers[0].scrolly = 0;
-            regref.layers[0].tiles[0].atlas_id = 1;
-            regref.layers[0].tiles[0].tile_id = 1;
-            regref.layers[0].tiles[0].palette_id = 0;
-            regref.palettes[0] = get_ram_ptr(32*32 + 1);
-            regref.pixel_atlasses[1].data = get_ram_ptr(0);
-            regref.pixel_atlasses[1].sizex = 32;
-            regref.pixel_atlasses[1].sizey = 32;
-            regref.pixel_atlasses[1].storage_mode = core1::hires_core::StorageMode::EightBit;
-        }
+        make_default_data();
         core.render_scanline();
         // At this point we should should find the color 0x01/0x02/0x03 at position 0 in the display:
         let color = rendered_pixels.with(|pxl| pxl.borrow()[0]);
@@ -198,7 +232,7 @@ mod hires_core_tests
     pub fn will_render_green_output_if_nothing_was_setup()
     {
         let mut core = hirescore();
-        let mut reg_set = get_reg_ptr();  
+        clear_mem();
         core.render_scanline();
         let color = rendered_pixels.with(|pxl| pxl.borrow()[0]);
         assert!(color.r == 0 && color.g == 255 && color.b == 0);  
@@ -208,29 +242,13 @@ mod hires_core_tests
     pub fn will_set_error_if_bad_atlas_id()
     {
         let mut core = hirescore();
-        let mut reg_set = get_reg_ptr();
-        unsafe 
-        {
-            let regref = &mut *reg_set;
-            
-            regref.layers[0].tilex = 16;
-            regref.layers[0].tiley = 16;
-            regref.layers[0].scrollx = 0;
-            regref.layers[0].scrolly = 0;
-            regref.layers[0].tiles[0].atlas_id = 1;
-            regref.layers[0].tiles[0].tile_id = 1;
-            regref.layers[0].tiles[0].palette_id = 0;
-            regref.palettes[0] = get_ram_ptr(32*32 + 1);
-            regref.pixel_atlasses[1].data = get_ram_ptr(0);
-            regref.pixel_atlasses[1].sizex = 32;
-            regref.pixel_atlasses[1].sizey = 32;
-            regref.pixel_atlasses[1].storage_mode = core1::hires_core::StorageMode::EightBit;
-        }
+        let mut reg_set = get_reg_ref();
+        clear_mem();
+        make_default_data();
+        reg_set.layers[0].tiles[0].atlas_id = 1;
         core.render_scanline();
-        unsafe 
-        {
-            assert!((*reg_set).lastErr == GfxError::BadAtlasPtr as u8)
-        }
+        assert!(reg_set.lastErr == GfxError::BadAtlasPtr as u8)
+
     }
 
     
@@ -238,30 +256,38 @@ mod hires_core_tests
     pub fn will_set_error_if_bad_tile_id()
     {
         let mut core = hirescore();
-        let reg_set = get_reg_ptr();
-        unsafe 
-        {
-            let regref = &mut *reg_set;
-            
-            regref.layers[0].tilex = 16;
-            regref.layers[0].tiley = 16;
-            regref.layers[0].tiles[0].atlas_id = 1;
-            regref.layers[0].tiles[0].tile_id = 255;
-            regref.layers[0].tiles[0].palette_id = 0;
-            regref.palettes[0] = get_ram_ptr(32*32 + 1);
-            regref.pixel_atlasses[1].data = get_ram_ptr(0);
-            regref.pixel_atlasses[1].sizex = 32;
-            regref.pixel_atlasses[1].sizey = 32;
-            regref.pixel_atlasses[1].storage_mode = core1::hires_core::StorageMode::EightBit;
-        }
+        let mut reg_set = get_reg_ref();
+        clear_mem();
+        make_default_data();
+        reg_set.layers[0].tiles[0].tile_id = 255;
         core.render_scanline();
-        unsafe 
-        {
-            assert!((*reg_set).lastErr == GfxError::BadAtlasSize as u8)
-        }
+
+        assert!(reg_set.lastErr == GfxError::BadAtlasSize as u8);
 
         // nothing should be rendered in this case as well:
         let has_rendered = rendered_pixels.with(|pxl| pxl.borrow().len() != 0);
         assert!(has_rendered == false);
+    }
+
+    #[rstest]
+    pub fn will_render_sprite()
+    {
+        let mut core = hirescore();
+        let mut reg_set = get_reg_ref();
+        clear_mem();
+        make_default_data();
+        reg_set.sprites[0].atlas_id = 0;
+        reg_set.sprites[0].atlasx = 4;
+        reg_set.sprites[0].atlasx = 4;
+        reg_set.sprites[0].w = 8;
+        reg_set.sprites[0].h = 8;
+        reg_set.sprites[0].posx = 0;
+        reg_set.sprites[0].posy = 0;
+        /* ToDo: How do we control, that a layer does not contain data at a specific point?
+                 -> This might improve performance
+         */
+        core.render_scanline();
+        let color = rendered_pixels.with(|pxl| pxl.borrow()[0]);
+        assert!(color.r == 0 && color.g == 255 && color.b == 0);  
     }
 }

@@ -276,6 +276,17 @@ use crate::GfxCore;
 const MAX_PALETTES: usize = 32;
 const NUM_LAYERS: usize = 4;
 const MAX_ATLASSES: usize = 16;
+const MAX_SPRITES: usize = 64;
+
+const SPRITE_LAYER: usize = 1;
+
+/*
+Layers:
+0 -- Foreground
+1 -- Sprites
+2 -- BG0
+3 -- BG1
+*/
 
 #[repr(u8)]
 pub enum GfxError
@@ -322,6 +333,18 @@ pub struct Layer
     pub tiles: [Tile; 40*30]
 }
 
+pub struct Sprite
+{
+    pub posx: i16,
+    pub posy: i16,
+    pub w: i16,
+    pub h: i16,
+    pub palette_id: u8,
+    pub atlas_id: u8,
+    pub atlasx: u16,
+    pub atlasy: u16
+}
+
 pub struct RegisterSet
 {
     
@@ -337,7 +360,8 @@ pub struct RegisterSet
     pub lastErr:       u8,      // Contains the last encountered error
     pub pixel_atlasses: [PixelAtlas; MAX_ATLASSES],
     pub layers: [Layer; NUM_LAYERS],
-    pub palettes: [*const u8; MAX_PALETTES]
+    pub palettes: [*const u8; MAX_PALETTES],
+    pub sprites: [Sprite; MAX_SPRITES]
 }
 
 pub struct HiResCore<I: DisplayIrq, D: crate::Display>
@@ -530,6 +554,78 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
         
     }
 
+    
+    fn get_sprite_pixel(&self, pixel_index: u16) -> Result<Option<Color>, GfxError>
+    {
+        let regs = self.get_registers();
+        let scanline = self.scanline;
+        for sprite_id in 0..MAX_SPRITES
+        {
+            // check if sprite is used:
+            let sprite = &regs.sprites[sprite_id];
+
+            // effectively: 0xFFFF in both pos registers mark sprite as unused!
+            if sprite.posx == -1i16 && sprite.posy == -1i16     
+            {
+                continue;
+            }
+            
+            //hitbox test for sprite:
+            if !((sprite.posx < pixel_index  as i16) && (pixel_index as i16) < (sprite.posx + sprite.w))
+            {
+                continue;
+            }
+            if !((sprite.posy < scanline as i16) && (pixel_index as i16) < (sprite.posy + sprite.h))
+            {
+                continue;
+            }
+
+            if sprite.atlas_id > MAX_ATLASSES as u8
+            {
+                return Err(GfxError::BadAtlasId);
+            }
+
+            // Attention: We don't take into account that the sprite might have different sizes in the pixelatlas!
+            let sprite_pixel_x = pixel_index as i16 - sprite.posx;
+            let sprite_pixel_y = pixel_index as i16 - sprite.posy;
+
+            // calculate position within the sprite's pixelatlas:
+            let atlas = &regs.pixel_atlasses[sprite.atlas_id as usize];
+            let atlas_x = sprite.atlasx + sprite_pixel_x as u16;
+            let atlas_y = sprite.atlasy + sprite_pixel_y as u16;
+            // calculate offset into atlas:
+            let atlas_offset = atlas_y * atlas.sizex + atlas_x;
+            let color_index = self.get_atlas_data(sprite.atlas_id, atlas_offset as usize);
+            
+            if let Ok(color) = color_index
+            {
+                if color == 0       // Transparent
+                {
+                    // If we're transparent, we check other sprites
+                    // that might occupy this pixel.
+                    continue;
+                }
+
+                let color_entry = self.retrieve_palette_entry(sprite.palette_id, color);
+                if let Ok(color) = color_entry
+                {
+                    return Ok(Some(color));
+                }
+                else
+                {
+                    return Err(color_entry.unwrap_err());
+                }
+
+            }
+            else
+            {
+                return Err(color_index.unwrap_err());
+            }
+        }
+        
+        return Ok(None);
+    }
+    
     fn render_scanline_pixels(&mut self)
     {
 
@@ -539,7 +635,25 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
             let mut pixel_rendered = false;
             for i in 0..NUM_LAYERS
             {
-                let color = self.get_layer_pixel(pixel as u16, i);
+                let mut color;
+                if i == SPRITE_LAYER
+                {
+                    // For the sprite layer we first check, if a sprite generates
+                    // a pixel, afterwards we check the layercontent
+                    color = self.get_sprite_pixel(pixel as u16);
+                    if let Ok(col) = color
+                    {
+                        if col.is_none()
+                        {
+                            color = self.get_layer_pixel(pixel as u16, i);
+                        }
+                    }
+                }
+                else
+                {
+                    color = self.get_layer_pixel(pixel as u16, i);
+                }
+
                 if let Ok(output_pixel) = color
                 {
                     if let Some(pixel_color) = output_pixel

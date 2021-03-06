@@ -17,10 +17,8 @@ thread_local!(static register_memory: RefCell<[u8; 1024 * 32]> = RefCell::new([0
     
 pub fn get_reg_ptr() -> *mut u8
 {
-    unsafe 
-    {
-        return register_memory.with(|data|{return data.borrow_mut().as_mut_ptr();});
-    }
+
+    return register_memory.with(|data|{return data.borrow_mut().as_mut_ptr();});
 }
 
 pub fn main() {
