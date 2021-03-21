@@ -35,6 +35,7 @@ jobs:
 
   build_chip_target:
     runs-on: ubuntu-latest
+    steps:
     - name: Run tests
       working-directory: ./tests
       run: cargo test --verbose
