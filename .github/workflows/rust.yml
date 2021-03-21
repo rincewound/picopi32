@@ -23,7 +23,7 @@ jobs:
     - name: Build
       run: cargo build --verbose
 
-  build_chip_target:
+  build_target:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -33,7 +33,7 @@ jobs:
       working-directory: ./main
       run: cargo build --verbose
 
-  build_chip_target:
+  tests:
     runs-on: ubuntu-latest
     steps:
     - name: Run tests
