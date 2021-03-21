@@ -12,6 +12,7 @@ env:
 jobs:
   build:
 
+  build_all:
     runs-on: ubuntu-latest
 
     steps:
@@ -23,12 +24,9 @@ jobs:
           sudo apt-get install libsdl2-dev
     - name: Build
       run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
 
   build_chip_target:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v2
     - name: Install target
@@ -37,3 +35,8 @@ jobs:
       working-directory: ./main
       run: cargo build --verbose
 
+  build_chip_target:
+    runs-on: ubuntu-latest
+    - name: Run tests
+      working-directory: ./tests
+      run: cargo test --verbose
