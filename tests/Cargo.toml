@@ -8,3 +8,6 @@ edition = "2018"
 
 [dependencies]
 core1={ path="../core1" }
+
+[dependencies.core0]
+path = "../core0"

@@ -3,11 +3,13 @@ members = [
     "core0",
     "core1",
     "tests",
-    "bomberman",
-]
-
-exclude = [
+    
     "win",
-    "main",
     "chip",
 ]
+
+
+exclude = [
+    "main",
+]
+
