@@ -25,14 +25,14 @@ impl Context
     }
 }
 
-const Total_Num_Color_Elements: usize = 320 * 240*3;
+const TOTAL_NUM_COLOR_ELEMENTS: usize = 320 * 240*3;
 
 pub struct SdlDisplay
 {
     backbuffer: sdl2::render::Texture,
     ctx: Context,
     pixel_index: usize,
-    raw_buffer: [u8; Total_Num_Color_Elements]
+    raw_buffer: [u8; TOTAL_NUM_COLOR_ELEMENTS]
 }
 
 impl SdlDisplay
@@ -44,7 +44,7 @@ impl SdlDisplay
             backbuffer: ctx.texure_creator.create_texture_streaming(PixelFormatEnum::RGB24, 320, 240).unwrap(),
             ctx: ctx,
             pixel_index: 0,
-            raw_buffer: [0; Total_Num_Color_Elements]
+            raw_buffer: [0; TOTAL_NUM_COLOR_ELEMENTS]
         };
         return result;
     }
@@ -54,9 +54,9 @@ impl Display for SdlDisplay
 {
     fn push_pixel(&mut self, color: core1::Color) {
         let pi = self.pixel_index;
-        self.raw_buffer[pi + 0] = color.R;
-        self.raw_buffer[pi + 1] = color.G;
-        self.raw_buffer[pi + 2] = color.B;
+        self.raw_buffer[pi + 0] = color.r;
+        self.raw_buffer[pi + 1] = color.g;
+        self.raw_buffer[pi + 2] = color.b;
         self.pixel_index += 3;
     }
 
@@ -66,10 +66,10 @@ impl Display for SdlDisplay
     }
 
     fn show_screen(&mut self) {
-        let buff_slice = &self.raw_buffer[0..Total_Num_Color_Elements];
+        let buff_slice = &self.raw_buffer[0..TOTAL_NUM_COLOR_ELEMENTS];
         let _ = self.backbuffer.with_lock(None, |buffer: &mut [u8], _pitch: usize|
             {
-                for i in 0..Total_Num_Color_Elements
+                for i in 0..TOTAL_NUM_COLOR_ELEMENTS
                 {
                     buffer[i] = buff_slice[i];
                 }

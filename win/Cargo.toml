@@ -13,3 +13,6 @@ core1={ path="../core1" }
 [dependencies.sdl2]
 version = "0.34"
 features = ["unsafe_textures"]
+
+[profile.dev]
+opt-level = 3

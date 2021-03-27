@@ -21,6 +21,7 @@ jobs:
           sudo apt-get update -y -qq
           sudo apt-get install libsdl2-dev
     - name: Build
+      working-directory: ./tests
       run: cargo build --verbose
 
   build_target:
@@ -40,3 +41,23 @@ jobs:
     - name: Run tests
       working-directory: ./tests
       run: cargo test --verbose
+
+  # build_chip_target:
+  #   runs-on: ubuntu-latest
+
+  #   steps:
+  #   - uses: actions/checkout@v2
+  #   - name: Install target
+  #     run: rustup target add thumbv6m-none-eabi
+  #   - name: Build target
+  #     working-directory: ./main
+  #     run: cargo build --verbose
+
+  # TODO: comment out for now
+  # build_win_target:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - uses: actions/checkout@v2
+  #   - name: Build win
+  #     working-directory: ./win
+  #     run: cargo build --verbose

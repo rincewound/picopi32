@@ -8,3 +8,6 @@ edition = "2018"
 
 [dependencies]
 core1={ path="../core1" }
+
+[dev-dependencies]
+rstest = "0.6.4"
