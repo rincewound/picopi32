@@ -202,11 +202,11 @@ mod hires_core_tests
     }
 
     #[rstest]
-    pub fn will_trigger_lineend_irq_if_enabled()
+    pub fn will_trigger_lineend_irq_lyx_enabled()
     {
         let mut core = hirescore();
         let mut reg_set = get_reg_ref();
-        reg_set.LENDIrqEnable = true;
+        reg_set.LENDIrqEnable = false;
         reg_set.LYXIrqEnable = true;
         reg_set.LYCCompare = 2;
         core.render_scanline();
@@ -215,6 +215,23 @@ mod hires_core_tests
         core.render_scanline();
         line_irq = irqData.with(|data|{ return (*data.borrow()).line_irq; });        
         assert!(line_irq == 1);
+    }
+
+    
+    #[rstest]
+    pub fn will_trigger_lineend_irq_lend_enabled()
+    {
+        let mut core = hirescore();
+        let mut reg_set = get_reg_ref();
+        reg_set.LENDIrqEnable = true;
+        reg_set.LYXIrqEnable = false;
+        reg_set.LYCCompare = 2;
+        core.render_scanline();
+        let mut line_irq = irqData.with(|data|{ return (*data.borrow()).line_irq; });
+        assert!(line_irq == 1);
+        core.render_scanline();
+        line_irq = irqData.with(|data|{ return (*data.borrow()).line_irq; });        
+        assert!(line_irq == 2);
     }
 
     #[rstest]
