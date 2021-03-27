@@ -280,6 +280,8 @@ const MAX_SPRITES: usize = 64;
 
 const SPRITE_LAYER: usize = 1;
 
+pub const EMPTY_ATLAS_ID: u8 = 255;
+
 /*
 Layers:
 0 -- Foreground
@@ -527,6 +529,11 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
             tile_src_w = regs.layers[layer_index].tilex;
             tile_src_h = regs.layers[layer_index].tiley;
 
+            if atlas_id == EMPTY_ATLAS_ID
+            {
+                return Ok(None);
+            }
+
         }
 
         let color_index = self.get_colorindex_from_atlas(atlas_id, the_tile.tile_id as u16, tile_src_w, tile_src_h, tile_pixel_x, tile_pixel_y);
@@ -571,7 +578,7 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
             }
             
             //hitbox test for sprite:
-            if !((sprite.posx < pixel_index  as i16) && (pixel_index as i16) < (sprite.posx + sprite.w))
+            if !((sprite.posx <= pixel_index  as i16) && (pixel_index as i16) < (sprite.posx + sprite.w))
             {
                 continue;
             }
@@ -716,7 +723,14 @@ impl <I: DisplayIrq, D: Display> GfxCore for HiResCore<I,D>
 
         let regs = self.get_registers_mut();
 
+        let line_end_enable = regs.LENDIrqEnable;
+
         if regs.LYXIrqEnable && regs.LYCCompare == self.scanline
+        {
+            self.display_irq.trigger_irq(super::Irq::Scanline{scanline_index: self.scanline as usize});
+        }
+
+        if line_end_enable
         {
             self.display_irq.trigger_irq(super::Irq::Scanline{scanline_index: self.scanline as usize});
         }

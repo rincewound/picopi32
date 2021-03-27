@@ -3,7 +3,7 @@
 mod hires_core_tests
 {
     use rstest::*;
-    use core1::{Color, DisplayIrq, GfxCore, hires_core::{GfxError, HiResCore, RegisterSet}};
+    use core1::{Color, DisplayIrq, GfxCore, hires_core::{EMPTY_ATLAS_ID, GfxError, HiResCore, RegisterSet}};
     use std::{cell::RefCell};
 
      pub struct FakeDisplay
@@ -276,18 +276,17 @@ mod hires_core_tests
         let mut reg_set = get_reg_ref();
         clear_mem();
         make_default_data();
-        reg_set.sprites[0].atlas_id = 0;
+        reg_set.layers[0].tiles[0].atlas_id = EMPTY_ATLAS_ID;
+        reg_set.sprites[0].atlas_id = 1;
         reg_set.sprites[0].atlasx = 4;
         reg_set.sprites[0].atlasx = 4;
         reg_set.sprites[0].w = 8;
         reg_set.sprites[0].h = 8;
         reg_set.sprites[0].posx = 0;
         reg_set.sprites[0].posy = 0;
-        /* ToDo: How do we control, that a layer does not contain data at a specific point?
-                 -> This might improve performance
-         */
+
         core.render_scanline();
         let color = rendered_pixels.with(|pxl| pxl.borrow()[0]);
-        assert!(color.r == 0 && color.g == 255 && color.b == 0);  
+        assert!(color.r == 1 && color.g == 2 && color.b == 3);  
     }
 }
