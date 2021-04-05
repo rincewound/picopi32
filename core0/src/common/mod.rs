@@ -7,6 +7,7 @@ e.g. logic to handle graphic requests (draw entity, etc..)
 */
 
 
+#[derive(Clone, Copy)]
 pub enum Keys
 {
     Left,

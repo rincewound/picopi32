@@ -1,12 +1,9 @@
-use crate::common::Keys;
-use crate::bomberman::utils::{EntityType, Actions, Position};
-use crate::bomberman::map_navigator::MapNavigatorTrait;
+use crate::bomberman::utils::{Position, PIXEL_COUNT_PER_ROW};
+use crate::inlineif;
 
 
-const PIXEL_COUNT_PER_ROW: u8 = 8;
 
-
-pub trait Entity
+pub trait Monster
 {
     fn is_alive(&self) -> bool;
     fn update_new_position_if_possible(&mut self, current_pos: Option<Position>);
@@ -14,63 +11,66 @@ pub trait Entity
     fn game_over(&mut self);
 }
 
-
-pub struct HeroEntityManager<N, H> 
-where N: MapNavigatorTrait, H: Entity
-{
-    map_navigator: N,
-    hero: H,
-}
-
-impl<N: MapNavigatorTrait, H: Entity> HeroEntityManager<N, H>
-{
-    pub fn new(map_navigator: N, hero: H) -> Self
-    {
-        Self {map_navigator: map_navigator, hero: hero}
-    }
-
-    pub fn move_player(&mut self, key: Keys)
-    {
-        let current_pos = self.hero.get_position();
-        let new_pos = self.map_navigator.update_and_return_new_pos_if_possible(current_pos, key);
-        self.hero.update_new_position_if_possible(new_pos);
-    }
-
-    pub fn do_action(&self, action: Actions)
-    {
-        let current_pos = self.hero.get_position();
-        self.map_navigator.handle_action(current_pos, action);
-    }
-}
-
-pub struct HeroEntity
+// MovableEtity could be in this case the Hero or any of the Monster
+pub struct MovableEntity
 {
     position: Position,
     is_alive: bool,
 }
 
-impl Entity for HeroEntity
+impl MovableEntity
 {
-    fn is_alive(&self) -> bool
+    pub fn new() -> Self
     {
-        self.is_alive
+        Self{ position: Position::new(), is_alive: true }
+    }
+}
+
+impl MovableEntity
+{
+    pub fn update_position(&mut self, new_pos: Position)
+    {
+        self.position = new_pos
     }
 
-    fn update_new_position_if_possible(&mut self, new_pos: Option<Position>)
-    {
-        match new_pos
-        {
-            Some(pos) => self.position = pos,
-            None => return
-        }
-    }
-
-    fn get_position(&self) -> Position
+    pub fn get_position(&self) -> Position
     {
         self.position
     }
 
-    fn game_over(&mut self) {
-        self.is_alive = false
+    pub fn update_scalar_y(&mut self, is_pos: bool)
+    {
+        inlineif!(is_pos, self.position.scalar_y += 1, self.position.scalar_x -= 1);
+    }
+
+    pub fn update_scalar_x(&mut self, is_pos: bool)
+    {
+        inlineif!(is_pos, self.position.scalar_x += 1, self.position.scalar_x -= 1);
+    }
+
+    pub fn get_scalar_x(&self) -> isize
+    {
+        self.position.scalar_x.abs()
+    }
+
+    pub fn get_scalar_y(&self) -> isize
+    {
+        self.position.scalar_y.abs()
+    }
+
+    pub fn reinit_scalars(&mut self)
+    {
+        self.position.scalar_x = 0;
+        self.position.scalar_y = 0;
+    }
+
+    pub fn game_over(&mut self) {
+        self.is_alive = false;
+        self.position.reset()
+    }
+
+    pub fn is_alive(&self) -> bool
+    {
+        self.is_alive
     }
 }

@@ -20,9 +20,8 @@ pub mod utils;
 use utils::{EntityType, Actions, Position};
 
 pub mod map_navigator;
-use map_navigator::MapNavigatorTrait;
 
 
 pub mod entities;
-use entities::{HeroEntity, Entity};
+use entities::{MovableEntity};
 

@@ -9,7 +9,5 @@ edition = "2018"
 [dependencies]
 embedded-hal = "0.2.4"
 cortex-m = "0.7.1"
-
-[dependencies.rand]
-version = "0.4"
-default-features = false
+heapless = "0.6.1"
+rand_core = "0.6.0"
