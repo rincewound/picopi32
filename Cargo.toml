@@ -4,6 +4,7 @@ members = [
     "core1",
     "tests",
     "bomberman",
+    "win"
 ]
 
 exclude = [

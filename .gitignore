@@ -1,2 +1,4 @@
 ﻿target
 Cargo.lock
+tools/spritetool/obj
+tools/spritetool/bin
