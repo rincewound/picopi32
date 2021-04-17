@@ -1,11 +1,9 @@
-use MWalk0::{MWalk0_data, MWalk0_pal};
 use core1::{GfxCore, hires_core::RegisterSet};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use std::{cell::RefCell, time::Duration};
 
 mod sdl_display;
-mod MWalk0;
 
 struct dummy_irq{}
 
@@ -33,21 +31,19 @@ pub fn get_reg_set() -> &'static mut RegisterSet
     }
 }
 
-pub fn get_sprite_ptr() -> *const u8
+fn write_text(regset: &mut RegisterSet, text: String, row: u16, col: u16)
 {
-    let adr = &MWalk0::testpat_data as *const u8;
-    return adr;
-}
-
-pub fn get_pal_ptr() -> *const u8
-{
-    unsafe 
-    {
-        let adr = &MWalk0::testpat_pal as *const u32;
-        return std::mem::transmute::<*const u32, *const u8>(adr);
+    let mut tilepos = row * 40 + col;
+    for char in text.as_bytes().into_iter()
+    {                
+        regset.layers[0].tiles[tilepos as usize].tile_id = *char;
+        tilepos +=1;
+        if tilepos > 30*40
+        {
+            return;
+        }
     }
 }
-
 
 pub fn main() {
     
@@ -65,21 +61,21 @@ pub fn main() {
     let mut gfxCore = core1::hires_core::HiResCore::new(irq, dsp, get_reg_ptr());
 
     let mut regmem = get_reg_set();
-    regmem.pixel_atlasses[0].data = get_sprite_ptr();
-    regmem.pixel_atlasses[0].sizex = 10;
-    regmem.pixel_atlasses[0].sizey = 10;
-    regmem.pixel_atlasses[0].storage_mode = core1::hires_core::StorageMode::FourBit;
-    regmem.palettes[0] = get_pal_ptr();
+    regmem.Mode = 1;
     regmem.sprites[0].atlas_id = 0;
-    regmem.sprites[0].atlasx = 0;
-    regmem.sprites[0].atlasy = 0;
-    regmem.sprites[0].h = 10;
-    regmem.sprites[0].w = 10;
+    regmem.sprites[0].atlasx = 10;
+    regmem.sprites[0].atlasy = 133;
+    regmem.sprites[0].h = 32;
+    regmem.sprites[0].w = 110;
     regmem.sprites[0].palette_id = 0;
     regmem.sprites[0].posx = 0;
     regmem.sprites[0].posy = 0;
 
-    regmem.OutputEnable = true;
+    /* Show some text */
+    write_text(regmem, "PicoPi32 Textmode".to_string(), 10, 5);
+    
+
+    regmem.output_enable = true;
 
     let mut event_pump = sdl_context.event_pump().unwrap();
     let mut i = 0;
@@ -95,6 +91,19 @@ pub fn main() {
             }
         }
         gfxCore.render_frame();
+        regmem.sprites[0].posx += 1;
+        regmem.sprites[0].posy += 1;
+
+        if regmem.sprites[0].posx > 200
+        {
+            regmem.sprites[0].posx = 0
+        }
+
+        if regmem.sprites[0].posy > 200
+        {
+            regmem.sprites[0].posy = 0
+        }
+
         ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }
 }

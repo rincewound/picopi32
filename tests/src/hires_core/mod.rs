@@ -121,10 +121,11 @@ mod hires_core_tests
             let palette_start = 32 * 32 + 1;
             for i in 1..64      // don't touch color 0 , this is transparent
             {
-                let offset = palette_start + (i * 3);
+                let offset = palette_start + (i * 4);
                 borrow[offset + 0] = i as u8;
                 borrow[offset + 1] = 2*i as u8;
                 borrow[offset + 2] = 3*i as u8;
+                borrow[offset + 3] = 4*i as u8;
             }
         });
     }
@@ -148,10 +149,11 @@ mod hires_core_tests
                 let palette_start = 32 * 32 + 1;
                 for i in 1..64      // don't touch color 0 , this is transparent
                 {
-                    let offset = palette_start + (i * 3);
+                    let offset = palette_start + (i * 4);
                     borrow[offset + 0] = 0 as u8;
-                    borrow[offset + 1] = 0 as u8;
-                    borrow[offset + 2] = 0 as u8;
+                    borrow[offset + 1] = i as u8;
+                    borrow[offset + 2] = 2*i as u8;
+                    borrow[offset + 3] = 3*i as u8;
                 }
             });      
     }
@@ -240,9 +242,9 @@ mod hires_core_tests
         let mut core = hirescore();
         make_default_data();
         core.render_scanline();
-        // At this point we should should find the color 0x01/0x02/0x03 at position 0 in the display:
+        // At this point we should should find the color 0x03/0x02/0x01 at position 0 in the display:
         let color = rendered_pixels.with(|pxl| pxl.borrow()[0]);
-        assert!(color.r == 1 && color.g == 2 && color.b == 3);
+        assert!(color.r == 3 && color.g == 2 && color.b == 1);
     }
 
     #[rstest]
@@ -304,6 +306,6 @@ mod hires_core_tests
 
         core.render_scanline();
         let color = rendered_pixels.with(|pxl| pxl.borrow()[0]);
-        assert!(color.r == 1 && color.g == 2 && color.b == 3);  
+        assert!(color.r == 3 && color.g == 2 && color.b == 1);  
     }
 }

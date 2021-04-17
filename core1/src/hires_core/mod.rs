@@ -182,6 +182,16 @@ The core's functionality is exposed by means of virtual registers that are mappe
 write to the registers. The core does not expose direct access to layerdata. Instead a pseudo DMA mechanism is used, where the consuming core sets up
 a transfer and a target and triggers the DMA by means of sending a DMA Transfer Request to the core.
 
+Graphics Modes
+--------------
+The core supports 2 Modes:
+- Mode 0: All layers are available "normally"
+- Mode 1: A pseudo textmode, in which Layer 0 is setup as textlayer and uses the internal character rom for display.
+
+In Mode 1, pixel_atlas 0 will be setup to point to the character rom, 
+further, Palette 0  will be the pixel atlasses palette.
+
+
 Complete Registerset
 --------------------
 
@@ -190,7 +200,7 @@ GfxControlRegister (RP2040 0x20000 TBD!)
     OutputEnable: boolean       // Toggles on screen output
     LENDIrqEnable: boolean      // Toggles line end interrupt
     LYXIrqEnable: boolean       // Toggles the Line Comparator Interrupt
-    RFU:          u8
+    Mode:          u8           // Mode the core is in
     LYCCompare:   u16           // Line to trigger the Line Comparator at
     xshift:       u16
     yshift:       u16
@@ -273,6 +283,10 @@ use crate::{Color, Display};
 use crate::DisplayIrq;
 use crate::GfxCore;
 
+use self::character_rom::{character_rom_data, character_rom_pal};
+
+mod character_rom;
+
 const MAX_PALETTES: usize = 32;
 const NUM_LAYERS: usize = 4;
 const MAX_ATLASSES: usize = 16;
@@ -347,13 +361,13 @@ pub struct Sprite
     pub atlasy: u16
 }
 
+#[repr(C)]
 pub struct RegisterSet
-{
-    
-    pub OutputEnable: bool,      // Toggles on screen output
+{  
+    pub output_enable: bool,      // Toggles on screen output
     pub LENDIrqEnable: bool,     // Toggles line end interrupt
     pub LYXIrqEnable: bool,     // Toggles the Line Comparator Interrupt
-    pub RFU0:          u8,
+    pub Mode:          u8,
     pub LYCCompare:   u16,         // Line to trigger the Line Comparator at
     pub xshift:       u16,
     pub yshift:       u16,
@@ -371,7 +385,43 @@ pub struct HiResCore<I: DisplayIrq, D: crate::Display>
     display_irq: I,
     display: D,
     scanline: u16,
-    registers: *mut RegisterSet
+    registers: *mut RegisterSet,
+    active_mode: u8
+}
+
+impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
+{
+    pub fn enable_text_mode(&mut self)
+    {
+        // The active_mode fiels is used to make sure we only enable
+        // the char_rom once and not every cycle, when we see the Mode register
+        // being one. This saves some processing time and also allows us to -e.g.-
+        // change the palette for the characters, if we desire to do so.
+        if self.active_mode != 1
+        {
+            let regs = self.get_registers_mut();
+            regs.pixel_atlasses[0].data = &character_rom_data as *const u8;
+            regs.pixel_atlasses[0].sizex = 128;
+            regs.pixel_atlasses[0].sizey = 192;
+
+            unsafe
+            {
+                regs.palettes[0] = core::mem::transmute::<*const u32, *const u8>(&character_rom_pal as *const u32);
+            }
+
+            regs.layers[0].tilex = 8;
+            regs.layers[0].tiley = 8;
+
+            for i in 0..(30*40)
+            {
+                regs.layers[0].tiles[i].palette_id = 0;
+                regs.layers[0].tiles[i].atlas_id = 0;
+            }
+            regs.Mode = 1;
+            self.active_mode = 1;
+        }
+
+    }
 }
 
 impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
@@ -382,12 +432,14 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
         {
             let adr = core::mem::transmute::<*mut u8, *mut RegisterSet>(register_adr);
         
-            return Self{
+            let result = Self{
                 display_irq,
                 display,
                 scanline: 0,
-                registers: adr
+                registers: adr,
+                active_mode: 0
             };
+            result
         }
     }
 
@@ -433,7 +485,7 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
         }
         else if atlas.storage_mode == StorageMode::FourBit
         {            
-            byte_offset = (offset & 0xFFFFFFFE) / 2 + (offset & 0x1);
+            byte_offset = (offset & 0xFFFFFFFE) / 2;
             pixels_in_atlas = atlas.sizex as usize * atlas.sizey as usize * 2;
         } 
         else
@@ -452,16 +504,61 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
 
         unsafe 
         {
-            let atlas_byte = data_ptr.offset(byte_offset as isize);
-            return Ok(*atlas_byte);
+            let atlas_byte = *data_ptr.offset(byte_offset as isize);
+
+            if atlas.storage_mode == StorageMode::EightBit
+            {
+                return Ok(atlas_byte);
+            }
+
+            let the_byte: u8;
+            if offset & 0x01 != 0x00
+            {
+                the_byte = atlas_byte &0x0F;
+            }
+            else
+            {
+                the_byte = atlas_byte >> 4
+            }
+            return Ok(the_byte);
 
         }
     }
 
     fn get_colorindex_from_atlas(&self, atlas_id: u8, tile_id: u16, tilew: u8, tileh: u8, pixelx: u16, pixely: u16) -> Result<u8, GfxError>
     {
-        let tile_row = tile_id / tilew as u16;
-        let offset = tile_row as usize * tilew  as usize * tileh  as usize + pixely  as usize  * tilew as usize + pixelx as usize;
+        /*
+            How this works:
+            Each atlas, when used as a tilesource, is divided up into evenly sized chunks (e.g. 8x8, 10x4...),
+            i.e. a 50x50 atlas can be chunked into 10x10 tiles, where each tile is 5x5 pixels.
+            To obtain the actual color for a pixel within a tile we use the tile id and the tilesizes as well as
+            the offset into the tile to...
+
+        */
+        let atlas = &self.get_registers().pixel_atlasses[atlas_id as usize];
+
+        if atlas.sizex == 0 || atlas.sizey == 0
+        {
+            return Err(GfxError::BadAtlasId);
+        }
+
+        let atlas_width = atlas.sizex / (tilew as u16);
+
+        // ... calculate which column from the tileid
+        let tile_col = tile_id % atlas_width;
+        
+        // ... calculate at which (pixel!) offset into the atlas the row of our tile starts
+        let tile_row_start = (tile_id - tile_col) * (tilew as u16 * tileh as u16) as u16;
+
+        // ... calculate the actual start of the tiledata. Note that tiledata is not arranged sequentially, but
+        //     as a matrix (i.e. it is a subset of an image!). We also incorporate the y position of the pixel
+        //     we're looking for. Since our tile is a subset of an image we have to add y * sizex of the atlas
+        //     to the start of the tiledata.
+        let intra_tile_start = tile_row_start + (tile_col * tilew as u16) + pixely * atlas.sizex as u16;
+        let offset = (intra_tile_start + pixelx) as usize;
+
+        // note that the offset is a pixeloffset here. get_atlas_data will take the actual storage mode
+        // into account.
         let atlas_data = self.get_atlas_data(atlas_id, offset)?;
 
         return Ok(atlas_data);        
@@ -481,10 +578,20 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
 
         unsafe 
         {
-            let r = palette.offset(3 * entry_id as isize);
-            let g = r.offset(1);
-            let b = r.offset(2);
-            return Ok(Color{r: *r, g: *g, b: *b});
+            let start_ptr = palette.offset(((4 * entry_id)) as isize);
+            let v0 = *start_ptr;
+            let v1 = *(start_ptr.offset(1));
+            let v2 = *(start_ptr.offset(2));
+            let v3 = *(start_ptr.offset(3));
+
+            // Little Endian storage by palette tool --> stoopid!
+            // let b = palette.offset(((4 * entry_id)) as isize); 
+            // let g = b.offset(1);
+            // let r = b.offset(2);
+            // let r = palette.offset(((4 * entry_id) +1) as isize);      //An entry from sprtool is 4 bytes wide!
+            // let g = r.offset(1);
+            // let b = r.offset(2);
+            return Ok(Color{r: v2, g: v1, b: v0 + 0*v3});
         }        
     }
 
@@ -547,6 +654,10 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
             let the_color = self.retrieve_palette_entry(palette_id, col);
             if let Ok(res_color) = the_color
             {
+                if res_color.r == 255 && res_color.g == 0 && res_color.b == 255 
+                {
+                    return Ok(None);
+                }
                 return Ok(Some(res_color))
             }
             else
@@ -582,7 +693,7 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
             {
                 continue;
             }
-            if !((sprite.posy < scanline as i16) && (pixel_index as i16) < (sprite.posy + sprite.h))
+            if !((sprite.posy <= scanline as i16) && (scanline as i16) < (sprite.posy + sprite.h))
             {
                 continue;
             }
@@ -592,12 +703,14 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
                 return Err(GfxError::BadAtlasId);
             }
 
-            // Attention: We don't take into account that the sprite might have different sizes in the pixelatlas!
-            let sprite_pixel_x = pixel_index as i16 - sprite.posx;
-            let sprite_pixel_y = pixel_index as i16 - sprite.posy;
+            
 
             // calculate position within the sprite's pixelatlas:
-            let atlas = &regs.pixel_atlasses[sprite.atlas_id as usize];
+            let atlas = &regs.pixel_atlasses[sprite.atlas_id as usize];    
+
+            let sprite_pixel_x = pixel_index as i16 - sprite.posx;        
+            let sprite_pixel_y = scanline as i16 - sprite.posy;            
+            
             let atlas_x = sprite.atlasx + sprite_pixel_x as u16;
             let atlas_y = sprite.atlasy + sprite_pixel_y as u16;
             // calculate offset into atlas:
@@ -606,16 +719,22 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
             
             if let Ok(color) = color_index
             {
-                if color == 0       // Transparent
-                {
-                    // If we're transparent, we check other sprites
-                    // that might occupy this pixel.
-                    continue;
-                }
+                // Fix this: Sprite tool generates this wrong
+                // if color == 0       // Transparent
+                // {
+                //     // If we're transparent, we check other sprites
+                //     // that might occupy this pixel.
+                //     continue;
+                // }
+                let actual_color = color;
 
-                let color_entry = self.retrieve_palette_entry(sprite.palette_id, color);
+                let color_entry = self.retrieve_palette_entry(sprite.palette_id, actual_color);
                 if let Ok(color) = color_entry
-                {
+                {         
+                    if color.r == 255 && color.g == 0 && color.b == 255 
+                    {
+                        return Ok(None);
+                    }
                     return Ok(Some(color));
                 }
                 else
@@ -710,7 +829,7 @@ impl <I: DisplayIrq, D: Display> GfxCore for HiResCore<I,D>
             return;
         } 
 
-        // if regs.OutputEnable == true
+        // if regs.output_enable == true
         // {
         //     /* only if the other core enabled the output, we render
         //        anything.
@@ -718,7 +837,7 @@ impl <I: DisplayIrq, D: Display> GfxCore for HiResCore<I,D>
         //     return;
         // }
 
-        self.scanline += 1;
+        
         self.render_scanline_pixels();
 
         let regs = self.get_registers_mut();
@@ -735,6 +854,8 @@ impl <I: DisplayIrq, D: Display> GfxCore for HiResCore<I,D>
             self.display_irq.trigger_irq(super::Irq::Scanline{scanline_index: self.scanline as usize});
         }
 
+        self.scanline += 1;
+
         if self.scanline > (crate::DISPLAY_HEIGHT - 1) as u16
         {
             self.display_irq.trigger_irq(super::Irq::VSync);
@@ -742,7 +863,17 @@ impl <I: DisplayIrq, D: Display> GfxCore for HiResCore<I,D>
         }
     }
 
+
+
     fn render_frame(&mut self) {
+
+        // Check if we have to enable the character rom:
+        let regs = self.get_registers_mut();
+        if regs.Mode == 1
+        {
+            self.enable_text_mode();
+        }
+
         for _ in 0..crate::DISPLAY_HEIGHT
         {
             self.render_scanline();
