@@ -1,5 +1,7 @@
+#![no_std]
+
 use std::ops;
-use crate::check_scalar;
+use crate::check_valid_scalar;
 
 
 pub const PIXEL_COUNT_PER_ROW: isize = 10;
@@ -37,7 +39,7 @@ impl Bomb
 }
 
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, PartialOrd)]
 pub struct Position
 {
     pub x: isize,
@@ -53,8 +55,8 @@ impl ops::Add<Position> for Position
 
     fn add(self, rhs: Position) -> Position
     {
-        check_scalar!(self, rhs, scalar_x, scalar_y);
-        check_scalar!(self, rhs, scalar_y, scalar_x);
+        check_valid_scalar!(self, rhs, scalar_x, scalar_y);
+        check_valid_scalar!(self, rhs, scalar_y, scalar_x);
 
         let mut pos = Position{x: self.x + rhs.x, y: self.y + rhs.y, scalar_x: self.scalar_x + rhs.scalar_x, scalar_y: self.scalar_y + rhs.scalar_y };
         if pos.scalar_x > PIXEL_COUNT_PER_ROW - 1
@@ -108,30 +110,39 @@ impl Position
 
 #[macro_export]
 macro_rules! postion_handler {
-    ($self: ident, $update_scalar: ident, $scalar_A: ident, $scalar_B: ident, $x: expr, $y: expr, $is_pos: expr, $scal_x: expr, $scal_y: expr) =>
+    ($self: ident,
+     $entity: ident,
+     $update_scalar: ident,
+     $scalar_A: ident,
+     $scalar_B: ident,
+     $x: expr,
+     $y: expr,
+     $is_pos: expr,
+     $scal_x: expr,
+     $scal_y: expr) =>
     {
-        let next_pos = $self.hero.get_position() + $self.generate_position($x, $y, $scal_x, $scal_y);
-        println!("new position: {:?}", next_pos);
+        let next_pos = $self.$entity.get_position() + $self.generate_steping_position($scal_x, $scal_y);
         
         if !$self.is_valid_position(next_pos)
         {
-            println!("not valid: {:?}", $self.hero.get_position());
-            $self.hero.reinit_scalars();
+            $self.$entity.reinit_scalars();
             return
         }
-        $self.hero.$update_scalar($is_pos);
+        $self.$entity.$update_scalar($is_pos);
         
-        println!("update pos: {:?}", $self.hero.$scalar_B());
-        $self.map[$self.hero.get_position().y as usize][$self.hero.get_position().x as usize] = FieldElements::EmptyField as usize;
-        $self.hero.update_position(next_pos);
-        $self.map[$self.hero.get_position().y as usize][$self.hero.get_position().x as usize] = FieldElements::Player as usize;
+        $self.map[$self.$entity.get_position().y as usize][$self.$entity.get_position().x as usize] = FieldElements::EmptyField as usize;
+        $self.$entity.update_position(next_pos);
+        $self.map[$self.$entity.get_position().y as usize][$self.$entity.get_position().x as usize] = FieldElements::Player as usize;
 
     };
 }
 
 #[macro_export]
 macro_rules! inlineif {
-    ($cond: expr, $stat1: expr, $stat2: expr) => {
+    ($cond: expr,
+     $stat1: expr,
+     $stat2: expr) =>
+    {
         if $cond {
             $stat1 
         } else
@@ -142,8 +153,12 @@ macro_rules! inlineif {
 }
 
 #[macro_export]
-macro_rules! check_scalar {
-    ($self: ident, $rhs: ident, $scalar_A: ident, $scalar_B: ident) => {
+macro_rules! check_valid_scalar {
+    ($self: ident,
+     $rhs: ident,
+     $scalar_A: ident,
+     $scalar_B: ident) =>
+    {
         if $rhs.$scalar_A != 0
         {
             if $self.$scalar_B != 0
