@@ -12,6 +12,7 @@ pub trait Monster
 }
 
 // MovableEtity could be in this case the Hero or any of the Monster
+#[derive(Debug, Clone, Copy)]
 pub struct MovableEntity
 {
     position: Position,

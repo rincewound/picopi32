@@ -105,7 +105,6 @@ impl MapNavigator
     fn set_block(&mut self, start_pos_y: usize)
     {
         let mut start_pos_x = 0;
-        // populate blocks
         for index in 0..ARRAY_WIDTH
         {
             start_pos_x += 1;
@@ -137,24 +136,26 @@ impl MapNavigator
         match key {
             Keys::Up =>
             {
-                postion_handler!(self, update_scalar_y, get_scalar_x, get_scalar_y, 0, -1, false, 0, -1);
+                postion_handler!(self, hero, update_scalar_y, get_scalar_x, get_scalar_y, 0, -1, false, 0, -1);
             },
             Keys::Down =>
             {
-                postion_handler!(self, update_scalar_y, get_scalar_x, get_scalar_y, 0, 1, true, 0, 1);
+                postion_handler!(self, hero, update_scalar_y, get_scalar_x, get_scalar_y, 0, 1, true, 0, 1);
             }
             Keys::Left =>
             {
-                postion_handler!(self, update_scalar_x, get_scalar_y, get_scalar_x, -1, 0, false, -1, 0);
+                postion_handler!(self, hero, update_scalar_x, get_scalar_y, get_scalar_x, -1, 0, false, -1, 0);
             }
             Keys::Right =>
             {
-                postion_handler!(self, update_scalar_x, get_scalar_y, get_scalar_x, 1, 0, true, 1, 0);
+                postion_handler!(self, hero, update_scalar_x, get_scalar_y, get_scalar_x, 1, 0, true, 1, 0);
             }
         };
+
+        self.update_hero_state_if_nedded();
     }
 
-    fn generate_position(&self, x: isize, y: isize, x_scal: isize, y_scal: isize) -> Position
+    fn generate_steping_position(&self, x_scal: isize, y_scal: isize) -> Position
     {
         Position{x: 0, y: 0, scalar_x: x_scal, scalar_y: y_scal}
     }
@@ -178,8 +179,31 @@ impl MapNavigator
         }
     }
 
+    pub fn set_monster_in_field(&mut self, moster_id: usize, x: usize, y: usize)
+    {
+        self.map[y][x] = FieldElements::Monster as usize;
+        self.monsters[moster_id].update_position(Position{x: x as isize, y: y as isize, scalar_x: 0, scalar_y: 0});
+    }
+
     fn update_monster_postion(&mut self)
     {
+        // TODO: randomize generation of monster postition
+    }
+
+    fn update_hero_state_if_nedded(&mut self)
+    {
+        let hero_pos = self.hero.get_position();
+        let monsters= self.monsters.clone();
+        for monster in monsters
+        {
+            let _monster = monster.clone();
+            if hero_pos != monster.get_position()
+            {
+                continue;
+            }
+
+            self.hero.game_over();
+        }
     }
 
     pub fn get_entity(&self, x: usize, y: usize) -> usize
@@ -187,33 +211,4 @@ impl MapNavigator
         self.map[y][x]
     }
 }
-
-// pub struct EntitiesManager<N, H> 
-// where N: MapNavigatorTrait, H: Entity
-// {
-//     map_navigator: N,
-//     hero: H,
-//     num_of_monsters: u8,
-// }
-
-// impl<N: MapNavigatorTrait, H: Entity> EntitiesManager<N, H>
-// {
-//     pub fn new(map_navigator: N, hero: H, num_of_monsters: u8) -> Self
-//     {
-//         Self {map_navigator, hero, num_of_monsters}
-//     }
-
-//     pub fn move_player(&mut self, key: Keys)
-//     {
-//         let current_pos = self.hero.get_position();
-//         let new_pos = self.map_navigator.update_and_return_new_pos_if_possible(current_pos, key);
-//         self.hero.update_new_position_if_possible(new_pos);
-//     }
-
-//     pub fn do_action(&self, action: Actions)
-//     {
-//         let current_pos = self.hero.get_position();
-//         self.map_navigator.handle_action(current_pos, action);
-//     }
-// }
 

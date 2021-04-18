@@ -72,10 +72,10 @@ mod bomberman_tests
     {
         let mut map_navigator = generate_filed();
 
-        // assert_move(&mut map_navigator, Keys::Down, 0, 1);
-        // assert_move(&mut map_navigator, Keys::Up, 0, 0);
-        // assert_move(&mut map_navigator, Keys::Right, 1, 0);
-        // assert_move(&mut map_navigator, Keys::Left, 0, 0);
+        assert_move(&mut map_navigator, Keys::Down, 0, 1);
+        assert_move(&mut map_navigator, Keys::Up, 0, 0);
+        assert_move(&mut map_navigator, Keys::Right, 1, 0);
+        assert_move(&mut map_navigator, Keys::Left, 0, 0);
     }
 
     fn assert_move(map_navigator: &mut MapNavigator, key: Keys, x: usize, y: usize)
@@ -136,8 +136,12 @@ mod bomberman_tests
         assert_move(&mut map_navigator, Keys::Right, 5, 2);
     }
 
-    // #[test]
-    // fn test_gameover()
-    // {
-    // }
+    #[test]
+    fn test_gameover()
+    {
+        let mut map_navigator = generate_filed();
+        map_navigator.set_monster_in_field(0, 1, 0);
+        assert_move(&mut map_navigator, Keys::Right, 1, 0);
+        assert_eq!(map_navigator.hero.is_alive(), false);
+    }
 }
