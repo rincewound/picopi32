@@ -591,7 +591,7 @@ impl<I: DisplayIrq, D: crate::Display> HiResCore<I, D>
             // let r = palette.offset(((4 * entry_id) +1) as isize);      //An entry from sprtool is 4 bytes wide!
             // let g = r.offset(1);
             // let b = r.offset(2);
-            return Ok(Color{r: v2, g: v1, b: v0 + 0*v3});
+            return Ok(Color{r: v2, g: v1, b: v0 });
         }        
     }
 
